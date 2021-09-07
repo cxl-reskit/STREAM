@@ -46,6 +46,13 @@
 # include <float.h>
 # include <limits.h>
 # include <sys/time.h>
+# include <sys/mman.h>
+# include <sys/user.h>
+# include <string.h>
+# include <stdlib.h>
+# include <sys/types.h>
+# include <sys/stat.h>
+# include <fcntl.h>
 
 /*-----------------------------------------------------------------------
  * INSTRUCTIONS:
@@ -176,9 +183,13 @@
 #define STREAM_TYPE double
 #endif
 
+#if 0
 static STREAM_TYPE	a[STREAM_ARRAY_SIZE+OFFSET],
 			b[STREAM_ARRAY_SIZE+OFFSET],
 			c[STREAM_ARRAY_SIZE+OFFSET];
+#else
+static STREAM_TYPE	*a, *b, *c;
+#endif
 
 static double	avgtime[4] = {0}, maxtime[4] = {0},
 		mintime[4] = {FLT_MAX,FLT_MAX,FLT_MAX,FLT_MAX};
@@ -193,6 +204,11 @@ static double	bytes[4] = {
     3 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE
     };
 
+static inline size_t round_up_to_page(size_t size)
+{
+	return (size + PAGE_SIZE - 1) & (~PAGE_SIZE);
+}
+
 extern double mysecond();
 extern void checkSTREAMresults();
 #ifdef TUNED
@@ -205,7 +221,7 @@ extern void tuned_STREAM_Triad(STREAM_TYPE scalar);
 extern int omp_get_num_threads();
 #endif
 int
-main()
+main(int argc, char *argv[])
     {
     int			quantum, checktick();
     int			BytesPerWord;
@@ -213,6 +229,37 @@ main()
     ssize_t		j;
     STREAM_TYPE		scalar;
     double		t, times[4][NTIMES];
+    size_t              offset, size, next;
+    STREAM_TYPE *       addr;
+    int                 mfd;
+    char *              fname;
+
+    /* This version maps from /dev/mem, and gets the offset from argv[1] */
+    if (! strstr(argv[1], "0x")) {
+	    fprintf(stderr, "Offset (%s) must be hex using 0x\n", argv[1]);
+	    exit(-1);
+    }
+    offset = strtoull(argv[2], NULL, 0);
+
+    /* Map the arrays */
+    size = round_up_to_page(sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE);
+    printf("Will map %ld bytes from /dev/mem offset %lxn", size, offset);
+
+    fname = "/dev/mem";
+    mfd = open(fname, O_RDWR);
+    if (mfd < 0) {
+	    fprintf(stderr, "Failed to open memory device %s\n", fname);
+	    exit(-1);
+    }
+    addr = mmap(NULL, 3 * size, PROT_READ | PROT_WRITE, MAP_SHARED,
+		mfd, offset);
+    if (addr == MAP_FAILED) {
+	    fprintf(stderr, "mmap failed for device %s\n", fname);
+	    exit(-1);
+    }
+    a = &addr[0];
+    b = &addr[STREAM_ARRAY_SIZE];
+    c = &addr[2 * STREAM_ARRAY_SIZE];
 
     /* --- SETUP --- determine precision and check timing --- */
 
