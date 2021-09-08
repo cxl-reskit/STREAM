@@ -206,7 +206,7 @@ static double	bytes[4] = {
 
 static inline size_t round_up_to_page(size_t size)
 {
-	return (size + PAGE_SIZE - 1) & (~PAGE_SIZE);
+	return (size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
 }
 
 extern double mysecond();
@@ -239,11 +239,11 @@ main(int argc, char *argv[])
 	    fprintf(stderr, "Offset (%s) must be hex using 0x\n", argv[1]);
 	    exit(-1);
     }
-    offset = strtoull(argv[2], NULL, 0);
+    offset = strtoull(argv[1], NULL, 0);
 
     /* Map the arrays */
     size = round_up_to_page(sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE);
-    printf("Will map %ld bytes from /dev/mem offset %lxn", size, offset);
+    printf("Will map %ld bytes from /dev/mem offset 0x%lx\n", size, offset);
 
     fname = "/dev/mem";
     mfd = open(fname, O_RDWR);
@@ -258,8 +258,10 @@ main(int argc, char *argv[])
 	    exit(-1);
     }
     a = &addr[0];
-    b = &addr[STREAM_ARRAY_SIZE];
-    c = &addr[2 * STREAM_ARRAY_SIZE];
+    b = &addr[size];
+    c = &addr[2 * size];
+
+    printf("a: %p\nb: %p\nc: %p\n", a, b, c);
 
     /* --- SETUP --- determine precision and check timing --- */
 
