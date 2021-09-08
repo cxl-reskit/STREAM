@@ -97,8 +97,12 @@
  *          will override the default size of 10M with a new size of 100M elements
  *          per array.
  */
+#if 0
 #ifndef STREAM_ARRAY_SIZE
 #   define STREAM_ARRAY_SIZE	10000000
+#endif
+#else
+size_t STREAM_ARRAY_SIZE = 10000000;
 #endif
 
 /*  2) STREAM runs each kernel "NTIMES" times and reports the *best* result
@@ -197,12 +201,7 @@ static double	avgtime[4] = {0}, maxtime[4] = {0},
 static char	*label[4] = {"Copy:      ", "Scale:     ",
     "Add:       ", "Triad:     "};
 
-static double	bytes[4] = {
-    2 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE,
-    2 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE,
-    3 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE,
-    3 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE
-    };
+static double	bytes[4];
 
 static inline size_t round_up_to_page(size_t size)
 {
@@ -212,7 +211,8 @@ static inline size_t round_up_to_page(size_t size)
 static void
 printusage_exit(void)
 {
-	printf("Usage:\n\tstream_mu mem\n\tstream_mu cxl 0x8800000000\n\n");
+	printf("Usage:\n\tstream_mu <array_size>mem\n");
+	printf("\tstream_mu <array_size> cxl 0x8800000000\n\n");
 	exit(0);
 }
 
@@ -241,35 +241,49 @@ main(int argc, char *argv[])
     int                 mfd;
     char *              fname;
     char *              byte_array;
+    int                 next_arg = 1;
+    char *              cur_arg = argv[next_arg++];
+
+    /* This was auto-initialized before STREAM_ARRAY_SIZE became a variable */
+    bytes[0] = 2 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE;
+    bytes[1] = 2 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE;
+    bytes[2] = 3 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE;
+    bytes[3] = 3 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE;
+
+
+    /* Get STREAM_ARRAY_SIZE from command line */
+    offset = strtoull(cur_arg, NULL, 0);
+    cur_arg = argv[next_arg++];
 
     array_size = round_up_to_page(sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE);
     map_size = 3 * array_size;
     printf("Will map %ld bytes from /dev/mem offset 0x%lx\n",
 	   map_size, offset);
-    if (strcmp(argv[1], "mem") == 0) {
+    if (strcmp(cur_arg, "mem") == 0) {
 	    /* Get "normal" memory via anonymous mmap */
-	    if (argc != 2)
+	    if (argc != 3)
 		    printusage_exit();
 
-	    addr = mmap(NULL, array_size, PROT_READ | PROT_WRITE,
+	    addr = mmap(NULL, map_size, PROT_READ | PROT_WRITE,
 			MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 	    if (addr == MAP_FAILED) {
 		    fprintf(stderr, "mmap failed for device %s\n", fname);
 		    exit(-1);
 	    }
     }
-    else if (strcmp(argv[1], "cxl") == 0) {
-	    if (argc != 3) {
+    else if (strcmp(cur_arg, "cxl") == 0) {
+	    if (argc != 4) {
 		    fprintf(stderr, "Must specify HPA offset\n");
 		    printusage_exit();
 	    }
 	    /* Map from /dev/mem, and gets the offset from argv[2] */
-	    if (! strstr(argv[2], "0x")) {
+	    cur_arg = argv[next_arg++];
+	    if (! strstr(cur_arg, "0x")) {
 		    fprintf(stderr, "Offset (%s) must be hex using 0x\n",
-			    argv[2]);
+			    cur_arg);
 		    exit(-1);
 	    }
-	    offset = strtoull(argv[2], NULL, 0);
+	    offset = strtoull(cur_arg, NULL, 0);
 
 	    /* Map the arrays */
 
@@ -286,6 +300,10 @@ main(int argc, char *argv[])
 		    exit(-1);
 	    }
     }
+    else {
+	    printusage_exit();
+    }
+
     /* Divide up the mapped space among the arrays */
     byte_array = (char *)addr;
     a = (STREAM_TYPE *)&byte_array[0];
