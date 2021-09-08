@@ -209,6 +209,13 @@ static inline size_t round_up_to_page(size_t size)
 	return (size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
 }
 
+static void
+printusage_exit(void)
+{
+	printf("Usage:\n\tstream_mu mem\n\tstream_mu cxl 0x8800000000\n\n");
+	exit(0);
+}
+
 extern double mysecond();
 extern void checkSTREAMresults();
 #ifdef TUNED
@@ -229,37 +236,61 @@ main(int argc, char *argv[])
     ssize_t		j;
     STREAM_TYPE		scalar;
     double		t, times[4][NTIMES];
-    size_t              offset, size, next;
+    size_t              offset, array_size, map_size, next;
     STREAM_TYPE *       addr;
     int                 mfd;
     char *              fname;
+    char *              byte_array;
 
-    /* This version maps from /dev/mem, and gets the offset from argv[1] */
-    if (! strstr(argv[1], "0x")) {
-	    fprintf(stderr, "Offset (%s) must be hex using 0x\n", argv[1]);
-	    exit(-1);
-    }
-    offset = strtoull(argv[1], NULL, 0);
+    array_size = round_up_to_page(sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE);
+    map_size = 3 * array_size;
+    printf("Will map %ld bytes from /dev/mem offset 0x%lx\n",
+	   map_size, offset);
+    if (strcmp(argv[1], "mem") == 0) {
+	    /* Get "normal" memory via anonymous mmap */
+	    if (argc != 2)
+		    printusage_exit();
 
-    /* Map the arrays */
-    size = round_up_to_page(sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE);
-    printf("Will map %ld bytes from /dev/mem offset 0x%lx\n", size, offset);
+	    addr = mmap(NULL, array_size, PROT_READ | PROT_WRITE,
+			MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+	    if (addr == MAP_FAILED) {
+		    fprintf(stderr, "mmap failed for device %s\n", fname);
+		    exit(-1);
+	    }
+    }
+    else if (strcmp(argv[1], "cxl") == 0) {
+	    if (argc != 3) {
+		    fprintf(stderr, "Must specify HPA offset\n");
+		    printusage_exit();
+	    }
+	    /* Map from /dev/mem, and gets the offset from argv[2] */
+	    if (! strstr(argv[2], "0x")) {
+		    fprintf(stderr, "Offset (%s) must be hex using 0x\n",
+			    argv[2]);
+		    exit(-1);
+	    }
+	    offset = strtoull(argv[2], NULL, 0);
 
-    fname = "/dev/mem";
-    mfd = open(fname, O_RDWR);
-    if (mfd < 0) {
-	    fprintf(stderr, "Failed to open memory device %s\n", fname);
-	    exit(-1);
+	    /* Map the arrays */
+
+	    fname = "/dev/mem";
+	    mfd = open(fname, O_RDWR);
+	    if (mfd < 0) {
+		    fprintf(stderr, "Failed to open memory device %s\n", fname);
+		    exit(-1);
+	    }
+	    addr = mmap(NULL, map_size, PROT_READ | PROT_WRITE, MAP_SHARED,
+			mfd, offset);
+	    if (addr == MAP_FAILED) {
+		    fprintf(stderr, "mmap failed for device %s\n", fname);
+		    exit(-1);
+	    }
     }
-    addr = mmap(NULL, 3 * size, PROT_READ | PROT_WRITE, MAP_SHARED,
-		mfd, offset);
-    if (addr == MAP_FAILED) {
-	    fprintf(stderr, "mmap failed for device %s\n", fname);
-	    exit(-1);
-    }
-    a = &addr[0];
-    b = &addr[size];
-    c = &addr[2 * size];
+    /* Divide up the mapped space among the arrays */
+    byte_array = (char *)addr;
+    a = (STREAM_TYPE *)&byte_array[0];
+    b = (STREAM_TYPE *)&byte_array[array_size];
+    c = (STREAM_TYPE *)&byte_array[2 * array_size];
 
     printf("a: %p\nb: %p\nc: %p\n", a, b, c);
 
