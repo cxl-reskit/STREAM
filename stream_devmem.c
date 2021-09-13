@@ -243,6 +243,11 @@ main(int argc, char *argv[])
     char *              byte_array;
     int                 next_arg = 1;
     char *              cur_arg = argv[next_arg++];
+    int                 is_cxl = 0;
+
+    /* Get STREAM_ARRAY_SIZE from command line */
+    STREAM_ARRAY_SIZE = strtoull(cur_arg, NULL, 0);
+    cur_arg = argv[next_arg++];
 
     /* This was auto-initialized before STREAM_ARRAY_SIZE became a variable */
     bytes[0] = 2 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE;
@@ -250,13 +255,9 @@ main(int argc, char *argv[])
     bytes[2] = 3 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE;
     bytes[3] = 3 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE;
 
-
-    /* Get STREAM_ARRAY_SIZE from command line */
-    offset = strtoull(cur_arg, NULL, 0);
-    cur_arg = argv[next_arg++];
-
     array_size = round_up_to_page(sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE);
     map_size = 3 * array_size;
+
     printf("Will map %ld bytes from /dev/mem offset 0x%lx\n",
 	   map_size, offset);
     if (strcmp(cur_arg, "mem") == 0) {
@@ -272,6 +273,7 @@ main(int argc, char *argv[])
 	    }
     }
     else if (strcmp(cur_arg, "cxl") == 0) {
+	    is_cxl = 1;
 	    if (argc != 4) {
 		    fprintf(stderr, "Must specify HPA offset\n");
 		    printusage_exit();
@@ -309,8 +311,15 @@ main(int argc, char *argv[])
     a = (STREAM_TYPE *)&byte_array[0];
     b = (STREAM_TYPE *)&byte_array[array_size];
     c = (STREAM_TYPE *)&byte_array[2 * array_size];
-
-    printf("a: %p\nb: %p\nc: %p\n", a, b, c);
+    if (is_cxl) {
+	    printf("a: %p phys: %p\nb: %p phys: %p\nc: %p phys: %p\n",
+		   a, offset,
+		   b, (void *)((size_t)b - (size_t)a + offset),
+		   c, (void *)((size_t)c - (size_t)a + offset));
+    }
+    else {
+	    printf("a: %p\nb: %p\nc: %p\n", a, b, c);
+    }
 
     /* --- SETUP --- determine precision and check timing --- */
 
