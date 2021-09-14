@@ -53,6 +53,7 @@
 # include <sys/types.h>
 # include <sys/stat.h>
 # include <fcntl.h>
+# include <getopt.h>
 
 /*-----------------------------------------------------------------------
  * INSTRUCTIONS:
@@ -208,11 +209,22 @@ static inline size_t round_up_to_page(size_t size)
 	return (size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
 }
 
+struct option global_options[] = {
+	{"memdev",      required_argument, 0, 'd'},
+	{"arraysize",   required_argument, 0, 'a'},
+	{"memoffset",   required_argument, 0, 'o'},
+	{0, 0, 0, 0}
+};
+
 static void
-printusage_exit(void)
+printusage_exit(int argc, char *argv[])
 {
-	printf("Usage:\n\tstream_mu <array_size>mem\n");
-	printf("\tstream_mu <array_size> cxl 0x8800000000\n\n");
+	printf("Usage:\n\tstream_mu [args]\n\n");
+	printf("Arguments:\n");
+	printf("\t\t--memdev <dev> (e.g. /dev/dax0.0, or /dev/mem)\n");
+	printf("\t\t--memoffset <offset> (needed if you use /dev/mem)\n");
+	printf("\t\t--arraysize|-a <size>  (default %ld)\n",
+	       STREAM_ARRAY_SIZE);
 	exit(0);
 }
 
@@ -236,18 +248,46 @@ main(int argc, char *argv[])
     ssize_t		j;
     STREAM_TYPE		scalar;
     double		t, times[4][NTIMES];
-    size_t              offset, array_size, map_size, next;
+    size_t              array_size, map_size, next;
     STREAM_TYPE *       addr;
     int                 mfd;
-    char *              fname;
+    char *              memdev = NULL;
+    size_t              offset = 0;
     char *              byte_array;
     int                 next_arg = 1;
     char *              cur_arg = argv[next_arg++];
     int                 is_cxl = 0;
+    int                 ch;
 
-    /* Get STREAM_ARRAY_SIZE from command line */
-    STREAM_ARRAY_SIZE = strtoull(cur_arg, NULL, 0);
-    cur_arg = argv[next_arg++];
+
+#if 1
+    /* Check for snoop-specific command line options */
+    while ((ch = getopt_long(argc, argv, "d:a:o:h?",
+			    global_options, &optind)) != EOF) {
+	    if (ch == -1)	/* Detect the end of the options. */
+		    break;
+
+	    switch (ch) {
+	    case 'h':
+	    case '?':
+		    printusage_exit(argc, argv);
+		    return 0;
+	    case 'd':
+		    printf("memdev: %s\n", optarg);
+		    memdev = optarg;
+		    break;
+	    case 'o':
+		    printf("memoffset: %s\n", optarg);
+		    offset = strtoull(optarg, NULL, 0);
+		    break;
+	    case 'a':
+		    printf("arraycount: %s\n", optarg);
+		    STREAM_ARRAY_SIZE = strtoull(optarg, NULL, 0);
+		    break;
+	    default:
+		    return -1;
+	    }
+    }
 
     /* This was auto-initialized before STREAM_ARRAY_SIZE became a variable */
     bytes[0] = 2 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE;
@@ -255,6 +295,41 @@ main(int argc, char *argv[])
     bytes[2] = 3 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE;
     bytes[3] = 3 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE;
 
+    if (offset && (memdev == NULL)) {
+	    fprintf(stderr, "offset is not used with anonymous memory\n");
+	    printusage_exit(argc, argv);
+    }
+
+    array_size = round_up_to_page(sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE);
+    map_size = 3 * array_size;
+
+    if (memdev == NULL) {
+	    /* get memory via anonymous mmap */
+	    addr = mmap(NULL, map_size, PROT_READ | PROT_WRITE,
+			MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+	    if (addr == MAP_FAILED) {
+		    fprintf(stderr, "Anonymous mmap failed\n");
+		    exit(-1);
+	    }
+    }
+    else {
+	    is_cxl = 1;
+
+	    mfd = open(memdev, O_RDWR);
+	    if (mfd < 0) {
+		    fprintf(stderr, "Failed to open memory device %s\n",
+			    memdev);
+		    exit(-1);
+	    }
+	    addr = mmap(NULL, map_size, PROT_READ | PROT_WRITE, MAP_SHARED,
+			mfd, offset);
+	    if (addr == MAP_FAILED) {
+		    fprintf(stderr, "mmap failed for device %s (size %ld)\n",
+			    memdev, map_size);
+		    exit(-1);
+	    }
+    }
+#else
     array_size = round_up_to_page(sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE);
     map_size = 3 * array_size;
 
@@ -268,7 +343,7 @@ main(int argc, char *argv[])
 	    addr = mmap(NULL, map_size, PROT_READ | PROT_WRITE,
 			MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 	    if (addr == MAP_FAILED) {
-		    fprintf(stderr, "mmap failed for device %s\n", fname);
+		    fprintf(stderr, "Anonymous mmap failed\n");
 		    exit(-1);
 	    }
     }
@@ -289,22 +364,24 @@ main(int argc, char *argv[])
 
 	    /* Map the arrays */
 
-	    fname = "/dev/mem";
-	    mfd = open(fname, O_RDWR);
+	    memdev = "/dev/mem";
+	    mfd = open(memdev, O_RDWR);
 	    if (mfd < 0) {
-		    fprintf(stderr, "Failed to open memory device %s\n", fname);
+		    fprintf(stderr, "Failed to open memory device %s\n",
+			    memdev);
 		    exit(-1);
 	    }
 	    addr = mmap(NULL, map_size, PROT_READ | PROT_WRITE, MAP_SHARED,
 			mfd, offset);
 	    if (addr == MAP_FAILED) {
-		    fprintf(stderr, "mmap failed for device %s\n", fname);
+		    fprintf(stderr, "mmap failed for device %s\n", memdev);
 		    exit(-1);
 	    }
     }
     else {
 	    printusage_exit();
     }
+#endif
 
     /* Divide up the mapped space among the arrays */
     byte_array = (char *)addr;
