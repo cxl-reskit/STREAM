@@ -14,8 +14,8 @@ stream_f.exe: stream.f mysecond.o
 stream_c.exe: stream.c
 	$(CC) $(CFLAGS) stream.c -o stream_c.exe
 
-stream_mu: stream_devmem.c
-	$(CC) $(CFLAGS) stream_devmem.c -o stream_mu
+stream_mu: stream_mu.c
+	$(CC) $(CFLAGS) stream_mu.c -o stream_mu
 
 clean:
 	rm -f *.exe stream_mu *.o
