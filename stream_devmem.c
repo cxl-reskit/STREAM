@@ -209,6 +209,12 @@ static inline size_t round_up_to_page(size_t size)
 	return (size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
 }
 
+static inline size_t round_up_to_huge_page(size_t size)
+{
+	int huge_page_size = 0x200000;
+	return (size + huge_page_size - 1) & ~(huge_page_size - 1);
+}
+
 struct option global_options[] = {
 	{"memdev",      required_argument, 0, 'd'},
 	{"arraysize",   required_argument, 0, 'a'},
@@ -302,6 +308,8 @@ main(int argc, char *argv[])
 
     array_size = round_up_to_page(sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE);
     map_size = 3 * array_size;
+    /* For devdax, we require a 2MB multiple size */
+    map_size = round_up_to_huge_page(map_size);
 
     if (memdev == NULL) {
 	    /* get memory via anonymous mmap */
