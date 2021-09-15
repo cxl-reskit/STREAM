@@ -98,13 +98,7 @@
  *          will override the default size of 10M with a new size of 100M elements
  *          per array.
  */
-#if 0
-#ifndef STREAM_ARRAY_SIZE
-#   define STREAM_ARRAY_SIZE	10000000
-#endif
-#else
 size_t STREAM_ARRAY_SIZE = 10000000;
-#endif
 
 /*  2) STREAM runs each kernel "NTIMES" times and reports the *best* result
  *         for any iteration after the first, therefore the minimum value
@@ -188,13 +182,7 @@ size_t STREAM_ARRAY_SIZE = 10000000;
 #define STREAM_TYPE double
 #endif
 
-#if 0
-static STREAM_TYPE	a[STREAM_ARRAY_SIZE+OFFSET],
-			b[STREAM_ARRAY_SIZE+OFFSET],
-			c[STREAM_ARRAY_SIZE+OFFSET];
-#else
 static STREAM_TYPE	*a, *b, *c;
-#endif
 
 static double	avgtime[4] = {0}, maxtime[4] = {0},
 		mintime[4] = {FLT_MAX,FLT_MAX,FLT_MAX,FLT_MAX};
@@ -203,6 +191,20 @@ static char	*label[4] = {"Copy:      ", "Scale:     ",
     "Add:       ", "Triad:     "};
 
 static double	bytes[4];
+
+
+
+extern double mysecond();
+extern void checkSTREAMresults();
+#ifdef TUNED
+extern void tuned_STREAM_Copy();
+extern void tuned_STREAM_Scale(STREAM_TYPE scalar);
+extern void tuned_STREAM_Add();
+extern void tuned_STREAM_Triad(STREAM_TYPE scalar);
+#endif
+#ifdef _OPENMP
+extern int omp_get_num_threads();
+#endif
 
 static inline size_t round_up_to_page(size_t size)
 {
@@ -234,17 +236,6 @@ printusage_exit(int argc, char *argv[])
 	exit(0);
 }
 
-extern double mysecond();
-extern void checkSTREAMresults();
-#ifdef TUNED
-extern void tuned_STREAM_Copy();
-extern void tuned_STREAM_Scale(STREAM_TYPE scalar);
-extern void tuned_STREAM_Add();
-extern void tuned_STREAM_Triad(STREAM_TYPE scalar);
-#endif
-#ifdef _OPENMP
-extern int omp_get_num_threads();
-#endif
 int
 main(int argc, char *argv[])
     {
@@ -265,8 +256,6 @@ main(int argc, char *argv[])
     int                 is_cxl = 0;
     int                 ch;
 
-
-#if 1
     /* Check for snoop-specific command line options */
     while ((ch = getopt_long(argc, argv, "d:a:o:h?",
 			    global_options, &optind)) != EOF) {
@@ -337,59 +326,6 @@ main(int argc, char *argv[])
 		    exit(-1);
 	    }
     }
-#else
-    array_size = round_up_to_page(sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE);
-    map_size = 3 * array_size;
-
-    printf("Will map %ld bytes from /dev/mem offset 0x%lx\n",
-	   map_size, offset);
-    if (strcmp(cur_arg, "mem") == 0) {
-	    /* Get "normal" memory via anonymous mmap */
-	    if (argc != 3)
-		    printusage_exit();
-
-	    addr = mmap(NULL, map_size, PROT_READ | PROT_WRITE,
-			MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-	    if (addr == MAP_FAILED) {
-		    fprintf(stderr, "Anonymous mmap failed\n");
-		    exit(-1);
-	    }
-    }
-    else if (strcmp(cur_arg, "cxl") == 0) {
-	    is_cxl = 1;
-	    if (argc != 4) {
-		    fprintf(stderr, "Must specify HPA offset\n");
-		    printusage_exit();
-	    }
-	    /* Map from /dev/mem, and gets the offset from argv[2] */
-	    cur_arg = argv[next_arg++];
-	    if (! strstr(cur_arg, "0x")) {
-		    fprintf(stderr, "Offset (%s) must be hex using 0x\n",
-			    cur_arg);
-		    exit(-1);
-	    }
-	    offset = strtoull(cur_arg, NULL, 0);
-
-	    /* Map the arrays */
-
-	    memdev = "/dev/mem";
-	    mfd = open(memdev, O_RDWR);
-	    if (mfd < 0) {
-		    fprintf(stderr, "Failed to open memory device %s\n",
-			    memdev);
-		    exit(-1);
-	    }
-	    addr = mmap(NULL, map_size, PROT_READ | PROT_WRITE, MAP_SHARED,
-			mfd, offset);
-	    if (addr == MAP_FAILED) {
-		    fprintf(stderr, "mmap failed for device %s\n", memdev);
-		    exit(-1);
-	    }
-    }
-    else {
-	    printusage_exit();
-    }
-#endif
 
     /* Divide up the mapped space among the arrays */
     byte_array = (char *)addr;
