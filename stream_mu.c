@@ -55,6 +55,7 @@
 # include <fcntl.h>
 # include <getopt.h>
 
+# include "mu_mem.h"
 /*-----------------------------------------------------------------------
  * INSTRUCTIONS:
  *
@@ -221,6 +222,7 @@ struct option global_options[] = {
 	{"memdev",      required_argument, 0, 'd'},
 	{"arraysize",   required_argument, 0, 'a'},
 	{"memoffset",   required_argument, 0, 'o'},
+	{"flush",       no_argument, 0, 'o'},
 	{0, 0, 0, 0}
 };
 
@@ -233,6 +235,7 @@ printusage_exit(int argc, char *argv[])
 	printf("\t\t--memoffset <offset> (needed if you use /dev/mem)\n");
 	printf("\t\t--arraysize|-a <size>  (default %ld)\n",
 	       STREAM_ARRAY_SIZE);
+	printf("\t\t--flush|-f             (Flush processor cache after test)\n");
 	exit(0);
 }
 
@@ -255,9 +258,10 @@ main(int argc, char *argv[])
     char *              cur_arg = argv[next_arg++];
     int                 is_cxl = 0;
     int                 ch;
+    int                 flush_cache = 0;
 
     /* Check for snoop-specific command line options */
-    while ((ch = getopt_long(argc, argv, "d:a:o:h?",
+    while ((ch = getopt_long(argc, argv, "d:a:o:fh?",
 			    global_options, &optind)) != EOF) {
 	    if (ch == -1)	/* Detect the end of the options. */
 		    break;
@@ -278,6 +282,10 @@ main(int argc, char *argv[])
 	    case 'a':
 		    printf("arraycount: %s\n", optarg);
 		    STREAM_ARRAY_SIZE = strtoull(optarg, NULL, 0);
+		    break;
+	    case 'f':
+	            printf("Processor cache will be flushed after test\n");
+		    flush_cache = 1;
 		    break;
 	    default:
 		    return -1;
@@ -486,7 +494,7 @@ main(int argc, char *argv[])
 	    maxtime[j] = MAX(maxtime[j], times[j][k]);
 	    }
 	}
-    
+
     printf("Function    Best Rate MB/s  Avg time     Min time     Max time\n");
     for (j=0; j<4; j++) {
 		avgtime[j] = avgtime[j]/(double)(NTIMES-1);
@@ -502,6 +510,12 @@ main(int argc, char *argv[])
     /* --- Check Results --- */
     checkSTREAMresults();
     printf(HLINE);
+
+    if (flush_cache) {
+        /* Evict the arrays from processor cache
+	 * so there won't be memory writes after completion */
+        flush_processor_cache((const void *)byte_array, map_size);
+    }
 
     return 0;
 }
