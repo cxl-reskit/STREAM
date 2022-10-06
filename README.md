@@ -19,12 +19,16 @@ This hack of the benchmark changes the following:
 
 To view the changes:
 
-  diff stream.c stream_mu.c
+```shell
+diff stream.c stream_mu.c
+```
 
 Building
 ========
 
+```shell
 make
+```
 
 Bugs
 ====
@@ -51,24 +55,31 @@ Running stream_mu
 
 #### run against regular memory
 
-  \#./stream_mu
+```shell
+./stream_mu
+```
 
 #### Run against devdax memory
 
-grep dax /proc/iomem
+```shell
+sudo grep dax /proc/iomem
     880000000-107fffffff : dax0.0
 
-  \# ./stream_mu -d /dev/dax0.0
+  # ./stream_mu -d /dev/dax0.0
+```
 
 #### Run against devdax memory with a small array
 
-  \# grep dax /proc/iomem
+```shell
+# grep dax /proc/iomem
     880000000-107fffffff : dax0.0
 
-  \# ./stream_mu -a 100 -d /dev/dax0.0
+# ./stream_mu -a 100 -d /dev/dax0.0
+```
 
 #### Run against /dev/mem at a specific offset
 
 
-  \# ./stream_mu -a 100 -d /dev/mem -o 0x880000000
-
+```shell
+# ./stream_mu -a 100 -d /dev/mem -o 0x880000000
+```

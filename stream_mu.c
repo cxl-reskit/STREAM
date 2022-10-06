@@ -222,7 +222,7 @@ struct option global_options[] = {
 	{"memdev",      required_argument, 0, 'd'},
 	{"arraysize",   required_argument, 0, 'a'},
 	{"memoffset",   required_argument, 0, 'o'},
-	{"flush",       no_argument, 0, 'o'},
+	{"flush",       no_argument,       0, 'f'},
 	{0, 0, 0, 0}
 };
 
@@ -342,7 +342,7 @@ main(int argc, char *argv[])
     c = (STREAM_TYPE *)&byte_array[2 * array_size];
     if (is_cxl) {
 	    printf("a: %p phys: %p\nb: %p phys: %p\nc: %p phys: %p\n",
-		   a, offset,
+		   a, (void *)offset,
 		   b, (void *)((size_t)b - (size_t)a + offset),
 		   c, (void *)((size_t)c - (size_t)a + offset));
     }
