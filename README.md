@@ -7,7 +7,7 @@ original benchmark, the arrays are declared as global.
 
 This hack of the benchmark changes the following:
 
-* The arrays (a, b, c) are mmapped from an appropriate sourcce, rather than
+* The arrays (a, b, c) are mmapped from an appropriate source, rather than
   globally declared
   * if "-d device" is supplied, memory is mapped from device
   * if "-o offset" is supplied, memory is mapped from offset on device
