@@ -46,7 +46,16 @@
 # include <float.h>
 # include <limits.h>
 # include <sys/time.h>
+# include <sys/mman.h>
+# include <sys/user.h>
+# include <string.h>
+# include <stdlib.h>
+# include <sys/types.h>
+# include <sys/stat.h>
+# include <fcntl.h>
+# include <getopt.h>
 
+# include "mu_mem.h"
 /*-----------------------------------------------------------------------
  * INSTRUCTIONS:
  *
@@ -90,9 +99,7 @@
  *          will override the default size of 10M with a new size of 100M elements
  *          per array.
  */
-#ifndef STREAM_ARRAY_SIZE
-#   define STREAM_ARRAY_SIZE	10000000
-#endif
+size_t STREAM_ARRAY_SIZE = 10000000;
 
 /*  2) STREAM runs each kernel "NTIMES" times and reports the *best* result
  *         for any iteration after the first, therefore the minimum value
@@ -176,9 +183,7 @@
 #define STREAM_TYPE double
 #endif
 
-static STREAM_TYPE	a[STREAM_ARRAY_SIZE+OFFSET],
-			b[STREAM_ARRAY_SIZE+OFFSET],
-			c[STREAM_ARRAY_SIZE+OFFSET];
+static STREAM_TYPE	*a, *b, *c;
 
 static double	avgtime[4] = {0}, maxtime[4] = {0},
 		mintime[4] = {FLT_MAX,FLT_MAX,FLT_MAX,FLT_MAX};
@@ -186,12 +191,9 @@ static double	avgtime[4] = {0}, maxtime[4] = {0},
 static char	*label[4] = {"Copy:      ", "Scale:     ",
     "Add:       ", "Triad:     "};
 
-static double	bytes[4] = {
-    2 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE,
-    2 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE,
-    3 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE,
-    3 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE
-    };
+static double	bytes[4];
+
+
 
 extern double mysecond();
 extern void checkSTREAMresults();
@@ -204,8 +206,41 @@ extern void tuned_STREAM_Triad(STREAM_TYPE scalar);
 #ifdef _OPENMP
 extern int omp_get_num_threads();
 #endif
+
+static inline size_t round_up_to_page(size_t size)
+{
+	return (size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+}
+
+static inline size_t round_up_to_huge_page(size_t size)
+{
+	int huge_page_size = 0x200000;
+	return (size + huge_page_size - 1) & ~(huge_page_size - 1);
+}
+
+struct option global_options[] = {
+	{"memdev",      required_argument, 0, 'd'},
+	{"arraysize",   required_argument, 0, 'a'},
+	{"memoffset",   required_argument, 0, 'o'},
+	{"flush",       no_argument,       0, 'f'},
+	{0, 0, 0, 0}
+};
+
+static void
+printusage_exit(int argc, char *argv[])
+{
+	printf("Usage:\n\tstream_mu [args]\n\n");
+	printf("Arguments:\n");
+	printf("\t\t--memdev <dev> (e.g. /dev/dax0.0, or /dev/mem)\n");
+	printf("\t\t--memoffset <offset> (needed if you use /dev/mem)\n");
+	printf("\t\t--arraysize|-a <size>  (default %ld)\n",
+	       STREAM_ARRAY_SIZE);
+	printf("\t\t--flush|-f             (Flush processor cache after test)\n");
+	exit(0);
+}
+
 int
-main()
+main(int argc, char *argv[])
     {
     int			quantum, checktick();
     int			BytesPerWord;
@@ -213,6 +248,107 @@ main()
     ssize_t		j;
     STREAM_TYPE		scalar;
     double		t, times[4][NTIMES];
+    size_t              array_size, map_size, next;
+    STREAM_TYPE *       addr;
+    int                 mfd;
+    char *              memdev = NULL;
+    size_t              offset = 0;
+    char *              byte_array;
+    int                 next_arg = 1;
+    char *              cur_arg = argv[next_arg++];
+    int                 is_cxl = 0;
+    int                 ch;
+    int                 flush_cache = 0;
+
+    /* Check for snoop-specific command line options */
+    while ((ch = getopt_long(argc, argv, "d:a:o:fh?",
+			    global_options, &optind)) != EOF) {
+	    if (ch == -1)	/* Detect the end of the options. */
+		    break;
+
+	    switch (ch) {
+	    case 'h':
+	    case '?':
+		    printusage_exit(argc, argv);
+		    return 0;
+	    case 'd':
+		    printf("memdev: %s\n", optarg);
+		    memdev = optarg;
+		    break;
+	    case 'o':
+		    printf("memoffset: %s\n", optarg);
+		    offset = strtoull(optarg, NULL, 0);
+		    break;
+	    case 'a':
+		    printf("arraycount: %s\n", optarg);
+		    STREAM_ARRAY_SIZE = strtoull(optarg, NULL, 0);
+		    break;
+	    case 'f':
+	            printf("Processor cache will be flushed after test\n");
+		    flush_cache = 1;
+		    break;
+	    default:
+		    return -1;
+	    }
+    }
+
+    /* This was auto-initialized before STREAM_ARRAY_SIZE became a variable */
+    bytes[0] = 2 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE;
+    bytes[1] = 2 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE;
+    bytes[2] = 3 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE;
+    bytes[3] = 3 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE;
+
+    if (offset && (memdev == NULL)) {
+	    fprintf(stderr, "offset is not used with anonymous memory\n");
+	    printusage_exit(argc, argv);
+    }
+
+    array_size = round_up_to_page(sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE);
+    map_size = 3 * array_size;
+    /* For devdax, we require a 2MB multiple size */
+    map_size = round_up_to_huge_page(map_size);
+
+    if (memdev == NULL) {
+	    /* get memory via anonymous mmap */
+	    addr = mmap(NULL, map_size, PROT_READ | PROT_WRITE,
+			MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+	    if (addr == MAP_FAILED) {
+		    fprintf(stderr, "Anonymous mmap failed\n");
+		    exit(-1);
+	    }
+    }
+    else {
+	    is_cxl = 1;
+
+	    mfd = open(memdev, O_RDWR);
+	    if (mfd < 0) {
+		    fprintf(stderr, "Failed to open memory device %s\n",
+			    memdev);
+		    exit(-1);
+	    }
+	    addr = mmap(NULL, map_size, PROT_READ | PROT_WRITE, MAP_SHARED,
+			mfd, offset);
+	    if (addr == MAP_FAILED) {
+		    fprintf(stderr, "mmap failed for device %s (size %ld)\n",
+			    memdev, map_size);
+		    exit(-1);
+	    }
+    }
+
+    /* Divide up the mapped space among the arrays */
+    byte_array = (char *)addr;
+    a = (STREAM_TYPE *)&byte_array[0];
+    b = (STREAM_TYPE *)&byte_array[array_size];
+    c = (STREAM_TYPE *)&byte_array[2 * array_size];
+    if (is_cxl) {
+	    printf("a: %p phys: %p\nb: %p phys: %p\nc: %p phys: %p\n",
+		   a, (void *)offset,
+		   b, (void *)((size_t)b - (size_t)a + offset),
+		   c, (void *)((size_t)c - (size_t)a + offset));
+    }
+    else {
+	    printf("a: %p\nb: %p\nc: %p\n", a, b, c);
+    }
 
     /* --- SETUP --- determine precision and check timing --- */
 
@@ -358,7 +494,7 @@ main()
 	    maxtime[j] = MAX(maxtime[j], times[j][k]);
 	    }
 	}
-    
+
     printf("Function    Best Rate MB/s  Avg time     Min time     Max time\n");
     for (j=0; j<4; j++) {
 		avgtime[j] = avgtime[j]/(double)(NTIMES-1);
@@ -374,6 +510,12 @@ main()
     /* --- Check Results --- */
     checkSTREAMresults();
     printf(HLINE);
+
+    if (flush_cache) {
+        /* Evict the arrays from processor cache
+	 * so there won't be memory writes after completion */
+        flush_processor_cache((const void *)byte_array, map_size);
+    }
 
     return 0;
 }

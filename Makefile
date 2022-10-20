@@ -5,21 +5,18 @@ FC = gfortran
 FFLAGS = -O2 -fopenmp
 
 #all: stream_f.exe stream_c.exe stream_mu
-all: stream_c.exe stream_mu
+all: stream
 
 #stream_f.exe: stream.f mysecond.o
 #	$(CC) $(CFLAGS) -c mysecond.c
 #	$(FC) $(FFLAGS) -c stream.f
 #	$(FC) $(FFLAGS) stream.o mysecond.o -o stream_f.exe
 
-stream_c.exe: stream.c
-	$(CC) $(CFLAGS) stream.c -o stream_c.exe
-
-stream_mu: stream_mu.c
-	$(CC) $(CFLAGS) stream_mu.c -o stream_mu
+stream: stream.c
+	$(CC) $(CFLAGS) stream.c -o stream
 
 clean:
-	rm -f *.exe stream_mu *.o
+	rm -f *.exe stream_mu stream *.o
 
 # an example of a more complex build line for the Intel icc compiler
 stream.icc: stream.c
