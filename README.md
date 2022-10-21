@@ -17,14 +17,7 @@ This hack of the benchmark changes the following:
 * Default behavior is "the same" as the baseline benchmark.
   (default n_elem is 10000000)
 
-To view the changes:
-
-```text
-diff stream.c stream_mu.c
-```
-
 ## Building
-
 
 ```text
 make
@@ -49,12 +42,12 @@ has not been tested as of now).
 NOTE: the default size uses a bit less than 256MiB of memory, so if you
 have more than that you should be good.
 
-## Running stream_mu
+## Running stream
 
 #### Run against regular memory
 
 ```text
-./stream_mu
+./stream
 ```
 
 #### Run against devdax memory
@@ -63,7 +56,7 @@ have more than that you should be good.
 # grep dax /proc/iomem
     880000000-107fffffff : dax0.0
 
-# ./stream_mu -d /dev/dax0.0
+# ./stream -d /dev/dax0.0
 ```
 
 #### Run against devdax memory with a small array
@@ -72,12 +65,12 @@ have more than that you should be good.
 # grep dax /proc/iomem
     880000000-107fffffff : dax0.0
 
-# ./stream_mu -a 100 -d /dev/dax0.0
+# ./stream -a 100 -d /dev/dax0.0
 ```
 
 #### Run against /dev/mem at a specific offset
 
 
 ```text
-# ./stream_mu -a 100 -d /dev/mem -o 0x880000000
+# ./stream -a 100 -d /dev/mem -o 0x880000000
 ```
