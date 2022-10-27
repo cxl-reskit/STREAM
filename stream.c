@@ -229,9 +229,9 @@ struct option global_options[] = {
 static void
 printusage_exit(int argc, char *argv[])
 {
-	printf("Usage:\n\tstream_mu [args]\n\n");
+	printf("Usage:\n\tstream [args]\n\n");
 	printf("Arguments:\n");
-	printf("\t\t--memdev <dev> (e.g. /dev/dax0.0, or /dev/mem)\n");
+	printf("\t\t--memdev|-d <dev> (e.g. /dev/dax0.0, or /dev/mem)\n");
 	printf("\t\t--memoffset <offset> (needed if you use /dev/mem)\n");
 	printf("\t\t--arraysize|-a <size>  (default %ld)\n",
 	       STREAM_ARRAY_SIZE);
